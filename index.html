@@ -74,6 +74,7 @@
         const Upload = (props) => <Icon {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></Icon>;
         const History = (props) => <Icon {...props}><path d="M3 3v12a2 2 0 0 0 2 2h12"/><path d="M21 21H3"/><path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="6"/></Icon>;
         const Briefcase = (props) => <Icon {...props}><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></Icon>;
+        const Save = (props) => <Icon {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Icon>;
 
         // --- Helper Functions ---
         const getDayInThai = (date) => ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'][date.getDay()];
@@ -199,17 +200,21 @@
                 }
             };
 
-            const handleAttendance = async (studentId, date, status) => {
+            const handleAttendanceChange = (studentId, date, status) => {
                 const dateKey = date.toDateString();
                 const currentStatuses = attendance[dateKey] || {};
                 const newStatuses = { ...currentStatuses, [studentId]: status };
-                
                 setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
+            };
 
-                await apiRequest('SAVE_ATTENDANCE', {
+            const saveAttendanceForDate = async (date) => {
+                const dateKey = date.toDateString();
+                const statusesToSave = attendance[dateKey] || {};
+                const result = await apiRequest('SAVE_ATTENDANCE', {
                     date: formatDateToYYYYMMDD(date),
-                    statuses: newStatuses
+                    statuses: statusesToSave
                 });
+                return !!result;
             };
 
             const ModalComponent = () => {
@@ -317,12 +322,25 @@
 
             const DailyAttendanceView = () => {
                 const [selectedDate, setSelectedDate] = useState(new Date());
+                const [saveStatus, setSaveStatus] = useState('');
                 const attendanceStatuses = ['present', 'late', 'leave', 'absent'];
                 const statusConfig = {
                     present: { icon: CheckCircle, color: 'green', label: 'มา' },
                     late: { icon: Clock, color: 'yellow', label: 'สาย' },
                     leave: { icon: Briefcase, color: 'blue', label: 'ลา' },
                     absent: { icon: XCircle, color: 'red', label: 'ขาด' }
+                };
+                
+                const onSave = async () => {
+                    setSaveStatus('กำลังบันทึก...');
+                    const success = await saveAttendanceForDate(selectedDate);
+                    if (success) {
+                        setSaveStatus('บันทึกสำเร็จ!');
+                        setTimeout(() => setSaveStatus(''), 2000);
+                    } else {
+                        setSaveStatus('เกิดข้อผิดพลาด!');
+                        setTimeout(() => setSaveStatus(''), 3000);
+                    }
                 };
 
                 return (
@@ -353,11 +371,17 @@
                                 <div className="flex space-x-2">{attendanceStatuses.map(s => {
                                     const { icon: Icon, color, label } = statusConfig[s];
                                     const isSelected = currentStatus === s;
-                                    return (<button key={s} onClick={() => handleAttendance(student.studentId, selectedDate, s)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${isSelected ? `bg-${color}-500 text-white` : `bg-gray-200 text-gray-700 hover:bg-${color}-100`}`} disabled={!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}><Icon size={16} className="inline mr-1" />{label}</button>);
+                                    return (<button key={s} onClick={() => handleAttendanceChange(student.studentId, selectedDate, s)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${isSelected ? `bg-${color}-500 text-white` : `bg-gray-200 text-gray-700 hover:bg-${color}-100`}`} disabled={!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}><Icon size={16} className="inline mr-1" />{label}</button>);
                                 })}</div>
                             </div>);
                         })}</div>
                     )}
+                    <div className="mt-8 flex justify-center items-center gap-4">
+                        <button onClick={onSave} disabled={isSubmitting} className="flex items-center justify-center w-48 bg-green-600 text-white py-3 px-6 rounded-lg hover:bg-green-700 transition-colors shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
+                            {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <><Save size={20} className="mr-2" /> บันทึกการเช็คชื่อ</>}
+                        </button>
+                        {saveStatus && <p className="text-gray-600 font-semibold">{saveStatus}</p>}
+                    </div>
                 </div>
             )};
             
