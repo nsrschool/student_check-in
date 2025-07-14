@@ -237,7 +237,13 @@
             const handleAttendanceChange = async (studentId, date, status) => {
                 const dateKey = date.toDateString();
                 const currentStatuses = attendance[dateKey] || {};
-                const newStatuses = { ...currentStatuses, [studentId]: status };
+                const newStatuses = { ...currentStatuses };
+
+                if (status === 'none') {
+                    delete newStatuses[studentId];
+                } else {
+                    newStatuses[studentId] = status;
+                }
                 
                 // Optimistic UI update
                 setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
@@ -361,6 +367,31 @@
                     leave: { icon: Briefcase, color: 'blue', label: 'ลา' },
                     absent: { icon: XCircle, color: 'red', label: 'ขาด' }
                 };
+
+                const handleMarkAllPresent = async () => {
+                    if (filteredStudents.length === 0) return;
+                    if (!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)) {
+                        openModal('error', 'ไม่สามารถเช็คชื่อในวันหยุดได้');
+                        return;
+                    }
+
+                    const dateKey = selectedDate.toDateString();
+                    const currentStatuses = attendance[dateKey] || {};
+                    const newStatuses = { ...currentStatuses };
+
+                    filteredStudents.forEach(student => {
+                        newStatuses[student.studentId] = 'present';
+                    });
+
+                    // Optimistic UI update
+                    setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
+
+                    // Auto-save
+                    await apiRequest('SAVE_ATTENDANCE', {
+                        date: formatDateToYYYYMMDD(selectedDate),
+                        statuses: newStatuses
+                    });
+                };
                 
                 return (
                    <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
@@ -375,6 +406,14 @@
                                     </select>
                                 </div>
                                 <input type="date" value={formatDateToYYYYMMDD(selectedDate)} onChange={(e) => setSelectedDate(new Date(e.target.value))} className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"/>
+                                <button 
+                                    onClick={handleMarkAllPresent}
+                                    className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2 transition-colors disabled:bg-gray-400"
+                                    disabled={filteredStudents.length === 0 || !(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}
+                                >
+                                    <CheckCircle size={18} />
+                                    <span>เช็คมาทั้งห้อง</span>
+                                </button>
                             </div>
                         </div>
                         <p className="text-gray-600 mb-4">วัน{getDayInThai(selectedDate)} ที่ {selectedDate.getDate()} {getMonthInThai(selectedDate.getMonth())} {selectedDate.getFullYear() + 543}</p>
@@ -620,6 +659,7 @@
                                                     <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'late')} className="p-1 bg-yellow-600 rounded-full text-white hover:bg-yellow-700"><Clock size={16}/></button>
                                                     <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'leave')} className="p-1 bg-blue-600 rounded-full text-white hover:bg-blue-700"><Briefcase size={16}/></button>
                                                     <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'absent')} className="p-1 bg-red-600 rounded-full text-white hover:bg-red-700"><XCircle size={16}/></button>
+                                                    <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'none')} className="p-1 bg-gray-500 rounded-full text-white hover:bg-gray-600"><Trash2 size={16}/></button>
                                                 </div>
                                             )}
                                         </div>
