@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบเช็คชื่อนักเรียน</title>
+    <title>ระบบเช็คชื่อนักเรียน หนองสำโรงวิทยา</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -76,6 +76,7 @@
         const Briefcase = (props) => <Icon {...props}><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></Icon>;
         const Save = (props) => <Icon {...props}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></Icon>;
         const PieChart = (props) => <Icon {...props}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></Icon>;
+        const ArrowLeft = (props) => <Icon {...props}><line x1="19" x2="5" y1="12" y2="12"/><polyline points="12 19 5 12 12 5"/></Icon>;
 
         // --- Helper Functions ---
         const getDayInThai = (date) => ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'][date.getDay()];
@@ -156,11 +157,10 @@
                         const res = await fetch(GOOGLE_SHEET_BACKEND_URL);
                         const result = await res.json();
                         if (result.status === 'success') {
-                            // Ensure student data has the required properties
                             const processedStudents = (result.data.students || []).map(s => ({
                                 ...s,
                                 fullName: `${s.title || ''}${s.firstName} ${s.lastName}`.trim(),
-                                studentId: s.studentId || `${s.class}-${s.no}` // Fallback studentId
+                                studentId: s.studentId || `${s.class}-${s.no}`
                             }));
                             setStudents(processedStudents);
                             setAttendance(result.data.attendance || {});
@@ -245,10 +245,8 @@
                     newStatuses[studentId] = status;
                 }
                 
-                // Optimistic UI update
                 setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
 
-                // Auto-save
                 await apiRequest('SAVE_ATTENDANCE', {
                     date: formatDateToYYYYMMDD(date),
                     statuses: newStatuses
@@ -360,6 +358,8 @@
 
             const DailyAttendanceView = () => {
                 const [selectedDate, setSelectedDate] = useState(new Date());
+                const [activeClass, setActiveClass] = useState(null);
+
                 const attendanceStatuses = ['present', 'late', 'leave', 'absent'];
                 const statusConfig = {
                     present: { icon: CheckCircle, color: 'green', label: 'มา' },
@@ -367,9 +367,14 @@
                     leave: { icon: Briefcase, color: 'blue', label: 'ลา' },
                     absent: { icon: XCircle, color: 'red', label: 'ขาด' }
                 };
+                
+                const studentsInClass = useMemo(() => {
+                    if (!activeClass) return [];
+                    return students.filter(s => s.class === activeClass).sort((a, b) => a.no - b.no);
+                }, [students, activeClass]);
 
                 const handleMarkAllPresent = async () => {
-                    if (filteredStudents.length === 0) return;
+                    if (studentsInClass.length === 0) return;
                     if (!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)) {
                         openModal('error', 'ไม่สามารถเช็คชื่อในวันหยุดได้');
                         return;
@@ -379,37 +384,62 @@
                     const currentStatuses = attendance[dateKey] || {};
                     const newStatuses = { ...currentStatuses };
 
-                    filteredStudents.forEach(student => {
+                    studentsInClass.forEach(student => {
                         newStatuses[student.studentId] = 'present';
                     });
 
-                    // Optimistic UI update
                     setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
 
-                    // Auto-save
                     await apiRequest('SAVE_ATTENDANCE', {
                         date: formatDateToYYYYMMDD(selectedDate),
                         statuses: newStatuses
                     });
                 };
+
+                if (!activeClass) {
+                    return (
+                        <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+                            <div className="flex items-center space-x-3 mb-6">
+                                <Calendar className="text-blue-600" size={24} />
+                                <h2 className="text-xl font-bold text-gray-800">เลือกชั้นเรียนเพื่อเช็คชื่อ</h2>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {uniqueClasses.map(cls => (
+                                    <button 
+                                        key={cls} 
+                                        onClick={() => setActiveClass(cls)}
+                                        className="p-6 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105 flex flex-col items-center justify-center"
+                                    >
+                                        <Users size={32} className="mb-2"/>
+                                        <span className="text-xl font-bold">ห้อง {cls}</span>
+                                    </button>
+                                ))}
+                                {uniqueClasses.length === 0 && 
+                                    <div className="col-span-full text-center py-10 text-gray-500">
+                                        <p>ไม่พบข้อมูลชั้นเรียน</p>
+                                        <button onClick={() => setCurrentView('manage')} className="mt-2 text-blue-600 hover:underline">ไปที่หน้าจัดการนักเรียนเพื่อเพิ่มข้อมูล</button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    );
+                }
                 
                 return (
                    <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
                         <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
-                            <div className="flex items-center space-x-3"><Calendar className="text-blue-600" size={24} /><h2 className="text-xl font-bold text-gray-800">เช็คชื่อรายวัน</h2></div>
+                            <div className="flex items-center space-x-3">
+                                <button onClick={() => setActiveClass(null)} className="p-2 rounded-full hover:bg-gray-200 transition-colors" title="กลับไปเลือกห้อง">
+                                    <ArrowLeft size={20} />
+                                </button>
+                                <h2 className="text-xl font-bold text-gray-800">เช็คชื่อห้อง {activeClass}</h2>
+                            </div>
                             <div className="flex items-center gap-4 flex-wrap justify-center">
-                                <div className="flex items-center space-x-2">
-                                    <label htmlFor="classFilterDaily" className="text-sm font-medium text-gray-700">ชั้น:</label>
-                                    <select id="classFilterDaily" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                        <option value="all">ทั้งหมด</option>
-                                        {uniqueClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                                    </select>
-                                </div>
                                 <input type="date" value={formatDateToYYYYMMDD(selectedDate)} onChange={(e) => setSelectedDate(new Date(e.target.value))} className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"/>
                                 <button 
                                     onClick={handleMarkAllPresent}
                                     className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2 transition-colors disabled:bg-gray-400"
-                                    disabled={filteredStudents.length === 0 || !(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}
+                                    disabled={studentsInClass.length === 0 || !(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}
                                 >
                                     <CheckCircle size={18} />
                                     <span>เช็คมาทั้งห้อง</span>
@@ -418,12 +448,12 @@
                         </div>
                         <p className="text-gray-600 mb-4">วัน{getDayInThai(selectedDate)} ที่ {selectedDate.getDate()} {getMonthInThai(selectedDate.getMonth())} {selectedDate.getFullYear() + 543}</p>
                         {!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5) && <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6 rounded"><p className="text-yellow-700 font-medium">⚠️ วันที่เลือกเป็นวันหยุด</p></div>}
-                        {filteredStudents.length === 0 ? (<div className="text-center py-10 text-gray-500"><p>ไม่พบนักเรียนในชั้นที่เลือก หรือยังไม่มีข้อมูลนักเรียน</p><button onClick={() => setCurrentView('manage')} className="mt-2 text-blue-600 hover:underline">ไปที่หน้าจัดการนักเรียน</button></div>) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{filteredStudents.map(student => {
+                        {studentsInClass.length === 0 ? (<div className="text-center py-10 text-gray-500"><p>ไม่พบนักเรียนในชั้นเรียนนี้</p></div>) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{studentsInClass.map(student => {
                                 const currentStatus = attendance[selectedDate.toDateString()]?.[student.studentId] || 'none';
                                 return (<div key={student.studentId} className="bg-gray-50 rounded-lg p-4 border transition-shadow hover:shadow-md">
                                     <div className="flex items-center justify-between mb-3">
-                                        <div><h3 className="font-semibold text-gray-800">{student.fullName}</h3><p className="text-sm text-gray-600">ชั้น {student.class} เลขที่ {student.no}</p></div>
+                                        <div><h3 className="font-semibold text-gray-800">{student.fullName}</h3><p className="text-sm text-gray-600">เลขที่ {student.no}</p></div>
                                         <span className="text-2xl font-bold text-gray-400">#{student.no}</span>
                                     </div>
                                     <div className="flex space-x-2">{attendanceStatuses.map(s => {
@@ -654,12 +684,14 @@
                                                 {status !== 'none' && <span className="font-bold text-sm">{statusConfig[status].label}</span>}
                                             </div>
                                             {isWeekday && (
-                                                <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-1 rounded-md p-1">
-                                                    <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'present')} className="p-1 bg-green-600 rounded-full text-white hover:bg-green-700"><CheckCircle size={16}/></button>
-                                                    <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'late')} className="p-1 bg-yellow-600 rounded-full text-white hover:bg-yellow-700"><Clock size={16}/></button>
-                                                    <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'leave')} className="p-1 bg-blue-600 rounded-full text-white hover:bg-blue-700"><Briefcase size={16}/></button>
-                                                    <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'absent')} className="p-1 bg-red-600 rounded-full text-white hover:bg-red-700"><XCircle size={16}/></button>
-                                                    <button onClick={() => handleAttendanceChange(selectedStudentId, date, 'none')} className="p-1 bg-gray-500 rounded-full text-white hover:bg-gray-600"><Trash2 size={16}/></button>
+                                                <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-md p-1">
+                                                    <button 
+                                                        onClick={() => handleAttendanceChange(selectedStudentId, date, 'none')} 
+                                                        className="p-2 bg-red-600 rounded-full text-white hover:bg-red-700 flex items-center justify-center"
+                                                        title="ลบข้อมูลการเช็คชื่อ"
+                                                    >
+                                                        <Trash2 size={20}/>
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>
