@@ -83,6 +83,533 @@
         const getMonthInThai = (monthIndex) => ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'][monthIndex];
         const formatDateToYYYYMMDD = (date) => `${date.getFullYear()}-${('0' + (date.getMonth() + 1)).slice(-2)}-${('0' + date.getDate()).slice(-2)}`;
 
+        // --- View Components ---
+        // These components are defined outside the main app component to prevent state loss on re-renders.
+        
+        const ModalComponent = ({ modal, closeModal, deleteStudent, importStudents }) => {
+            if (!modal.isOpen) return null;
+            const handleConfirm = () => {
+                if (modal.type === 'delete_student') deleteStudent(modal.data);
+                else if (modal.type === 'import_students') importStudents(modal.data);
+            };
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"><div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-auto">
+                    <div className="flex items-start mb-4">
+                        {modal.type === 'error' && <AlertTriangle className="text-red-500 mr-3 flex-shrink-0" size={24}/>}
+                        {modal.type.startsWith('delete') && <AlertTriangle className="text-yellow-500 mr-3 flex-shrink-0" size={24}/>}
+                        <h3 className="text-lg font-bold">{modal.type === 'error' ? 'ข้อผิดพลาด' : 'ยืนยันการกระทำ'}</h3>
+                    </div>
+                    <p className="text-gray-600 mb-6 break-words">{modal.message}</p>
+                    <div className="flex justify-end space-x-3">
+                        {['delete_student', 'import_students'].includes(modal.type) ? (<>
+                            <button onClick={closeModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">ยกเลิก</button>
+                            <button onClick={handleConfirm} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">ยืนยัน</button>
+                        </>) : (<button onClick={closeModal} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">ตกลง</button>)}
+                    </div>
+                </div></div>
+            );
+        };
+
+        const EditStudentModal = ({ modal, closeModal, updateStudent, isSubmitting }) => {
+            const [formData, setFormData] = useState(null);
+            useEffect(() => { setFormData(modal.data); }, [modal.data]);
+            if (!modal.isOpen || modal.type !== 'edit_student') return null;
+            const handleChange = (e) => {
+                const { name, value } = e.target;
+                const val = name === 'no' ? parseInt(value) || '' : value;
+                setFormData(prev => ({ ...prev, [name]: val }));
+            };
+            const handleSubmit = (e) => { e.preventDefault(); updateStudent(modal.data, formData); };
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"><form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-auto space-y-4">
+                    <h3 className="text-lg font-bold">แก้ไขข้อมูลนักเรียน</h3>
+                    <div><label htmlFor="edit-class" className="block text-sm font-medium text-gray-700">ชั้น</label><input type="text" name="class" id="edit-class" value={formData?.class || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                    <div><label htmlFor="edit-no" className="block text-sm font-medium text-gray-700">เลขที่</label><input type="number" name="no" id="edit-no" value={formData?.no || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                    <div><label htmlFor="edit-title" className="block text-sm font-medium text-gray-700">คำนำหน้า</label><input type="text" name="title" id="edit-title" value={formData?.title || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                    <div><label htmlFor="edit-firstName" className="block text-sm font-medium text-gray-700">ชื่อ</label><input type="text" name="firstName" id="edit-firstName" value={formData?.firstName || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                    <div><label htmlFor="edit-lastName" className="block text-sm font-medium text-gray-700">นามสกุล</label><input type="text" name="lastName" id="edit-lastName" value={formData?.lastName || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                    <div className="flex justify-end space-x-3 pt-2">
+                        <button type="button" onClick={closeModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">ยกเลิก</button>
+                        <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400">{isSubmitting ? 'กำลังบันทึก...' : 'บันทึก'}</button>
+                    </div>
+                </form></div>
+            );
+        };
+
+        const StudentManagementView = ({ students, addStudent, importStudents, openModal, isSubmitting }) => {
+            const [newStudent, setNewStudent] = useState({ class: '', no: '', title: '', firstName: '', lastName: '' });
+            const handleInputChange = (e) => { const { name, value } = e.target; const val = name === 'no' ? parseInt(value) || '' : value; setNewStudent(prev => ({ ...prev, [name]: val })); };
+            const handleAddStudent = async (e) => { e.preventDefault(); if (!newStudent.class || !newStudent.no || !newStudent.firstName || !newStudent.lastName) return openModal('error', 'กรุณากรอกข้อมูลนักเรียนให้ครบถ้วน (ชั้น, เลขที่, ชื่อ, นามสกุล)'); const success = await addStudent(newStudent); if(success) setNewStudent({ class: '', no: '', title: '', firstName: '', lastName: '' }); };
+            const handleFileImport = (e) => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = new Uint8Array(event.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const sheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[sheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        const imported = json.slice(1).map(row => ({
+                            class: String(row[0] || ''),
+                            no: parseInt(row[1]),
+                            title: String(row[2] || ''),
+                            firstName: String(row[3] || ''),
+                            lastName: String(row[4] || ''),
+                        })).filter(s => s.class && s.no && s.firstName && s.lastName);
+                        if (imported.length > 0) openModal('import_students', `คุณกำลังจะนำเข้ารายชื่อนักเรียน ${imported.length} คน และจะลบรายชื่อเดิมทั้งหมด ยืนยันหรือไม่?`, imported);
+                        else openModal('error', 'ไม่พบข้อมูลนักเรียนที่ถูกต้องในไฟล์ หรือไฟล์อาจมีรูปแบบไม่ถูกต้อง');
+                    } catch (error) { console.error("Error reading Excel file:", error); openModal('error', 'เกิดข้อผิดพลาดในการอ่านไฟล์ Excel'); }
+                };
+                reader.readAsArrayBuffer(file); e.target.value = '';
+            };
+            return (
+                <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in space-y-8">
+                    <div><h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><UserPlus className="mr-2 text-blue-600"/>เพิ่มนักเรียนใหม่</h2><form onSubmit={handleAddStudent} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+                        <div className="lg:col-span-1"><label htmlFor="class" className="block text-sm font-medium text-gray-700">ชั้น</label><input type="text" name="class" id="class" value={newStudent.class} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                        <div className="lg:col-span-1"><label htmlFor="no" className="block text-sm font-medium text-gray-700">เลขที่</label><input type="number" name="no" id="no" value={newStudent.no} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                        <div className="lg:col-span-1"><label htmlFor="title" className="block text-sm font-medium text-gray-700">คำนำหน้า</label><input type="text" name="title" id="title" value={newStudent.title} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                        <div className="lg:col-span-1"><label htmlFor="firstName" className="block text-sm font-medium text-gray-700">ชื่อ</label><input type="text" name="firstName" id="firstName" value={newStudent.firstName} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                        <div className="lg:col-span-1"><label htmlFor="lastName" className="block text-sm font-medium text-gray-700">นามสกุล</label><input type="text" name="lastName" id="lastName" value={newStudent.lastName} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
+                        <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 flex items-center justify-center disabled:bg-gray-400">
+                            {isSubmitting ? <Loader2 className="animate-spin" size={18}/> : <><UserPlus size={18} className="mr-2"/>เพิ่ม</>}
+                        </button>
+                    </form></div>
+                    <div><h3 className="text-lg font-semibold text-gray-700 mb-2 flex items-center"><Upload className="mr-2"/>นำเข้าจาก Excel</h3><p className="text-sm text-gray-500 mb-2">อัปโหลดไฟล์ .xlsx ที่มีคอลัมน์: A=ชั้น, B=เลขที่, C=คำนำหน้า, D=ชื่อ, E=นามสกุล (แถวแรกคือหัวข้อ)</p><input type="file" onChange={handleFileImport} accept=".xlsx, .csv" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/></div>
+                    <div><h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><Users className="mr-2 text-green-600"/>รายชื่อนักเรียน ({students.length} คน)</h2><div className="overflow-x-auto border rounded-lg"><table className="w-full">
+                        <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชั้น</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขที่</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ-นามสกุล</th><th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th></tr></thead>
+                        <tbody className="bg-white divide-y divide-gray-200">{students.map(student => (
+                            <tr key={student.studentId}><td className="px-6 py-4 text-sm text-gray-500">{student.class}</td><td className="px-6 py-4 text-sm font-medium text-gray-900">{student.no}</td><td className="px-6 py-4 text-sm text-gray-500">{student.fullName}</td><td className="px-6 py-4 text-center text-sm font-medium space-x-4">
+                                <button onClick={() => openModal('edit_student', '', student)} className="text-blue-600 hover:text-blue-900"><Pencil size={18}/></button>
+                                <button onClick={() => openModal('delete_student', `คุณแน่ใจหรือไม่ว่าต้องการลบ "${student.fullName}"?`, student)} className="text-red-600 hover:text-red-900"><Trash2 size={18}/></button>
+                            </td></tr>
+                        ))}{students.length === 0 && (<tr><td colSpan="4" className="text-center py-10 text-gray-500">ยังไม่มีข้อมูลนักเรียน</td></tr>)}
+                    </tbody></table></div></div>
+                </div>
+            );
+        };
+
+        const DailyAttendanceView = ({ uniqueClasses, students, attendance, handleAttendanceChange, setCurrentView, openModal, apiRequest }) => {
+            const [selectedDate, setSelectedDate] = useState(new Date());
+            const [activeClass, setActiveClass] = useState(null);
+
+            const attendanceStatuses = ['present', 'late', 'leave', 'absent'];
+            const statusConfig = {
+                present: { icon: CheckCircle, color: 'green', label: 'มา' },
+                late: { icon: Clock, color: 'yellow', label: 'สาย' },
+                leave: { icon: Briefcase, color: 'blue', label: 'ลา' },
+                absent: { icon: XCircle, color: 'red', label: 'ขาด' }
+            };
+            
+            const studentsInClass = useMemo(() => {
+                if (!activeClass) return [];
+                return students.filter(s => s.class === activeClass).sort((a, b) => a.no - b.no);
+            }, [students, activeClass]);
+
+            const handleMarkAllPresent = async () => {
+                if (studentsInClass.length === 0) return;
+                if (!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)) {
+                    openModal('error', 'ไม่สามารถเช็คชื่อในวันหยุดได้');
+                    return;
+                }
+
+                const dateKey = selectedDate.toDateString();
+                const currentStatuses = attendance[dateKey] || {};
+                const newStatuses = { ...currentStatuses };
+
+                studentsInClass.forEach(student => {
+                    newStatuses[student.studentId] = 'present';
+                });
+
+                // This is an optimistic update for the UI
+                handleAttendanceChange(null, selectedDate, newStatuses);
+            };
+
+            if (!activeClass) {
+                return (
+                    <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+                        <div className="flex items-center space-x-3 mb-6">
+                            <Calendar className="text-blue-600" size={24} />
+                            <h2 className="text-xl font-bold text-gray-800">เลือกชั้นเรียนเพื่อเช็คชื่อ</h2>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {uniqueClasses.map(cls => (
+                                <button 
+                                    key={cls} 
+                                    onClick={() => setActiveClass(cls)}
+                                    className="p-6 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105 flex flex-col items-center justify-center"
+                                >
+                                    <Users size={32} className="mb-2"/>
+                                    <span className="text-xl font-bold">ห้อง {cls}</span>
+                                </button>
+                            ))}
+                            {uniqueClasses.length === 0 && 
+                                <div className="col-span-full text-center py-10 text-gray-500">
+                                    <p>ไม่พบข้อมูลชั้นเรียน</p>
+                                    <button onClick={() => setCurrentView('manage')} className="mt-2 text-blue-600 hover:underline">ไปที่หน้าจัดการนักเรียนเพื่อเพิ่มข้อมูล</button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                );
+            }
+            
+            return (
+               <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+                    <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
+                        <div className="flex items-center space-x-3">
+                            <button onClick={() => setActiveClass(null)} className="p-2 rounded-full hover:bg-gray-200 transition-colors" title="กลับไปเลือกห้อง">
+                                <ArrowLeft size={20} />
+                            </button>
+                            <h2 className="text-xl font-bold text-gray-800">เช็คชื่อห้อง {activeClass}</h2>
+                        </div>
+                        <div className="flex items-center gap-4 flex-wrap justify-center">
+                            <input type="date" value={formatDateToYYYYMMDD(selectedDate)} onChange={(e) => setSelectedDate(new Date(e.target.value))} className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"/>
+                            <button 
+                                onClick={handleMarkAllPresent}
+                                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2 transition-colors disabled:bg-gray-400"
+                                disabled={studentsInClass.length === 0 || !(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}
+                            >
+                                <CheckCircle size={18} />
+                                <span>เช็คมาทั้งห้อง</span>
+                            </button>
+                        </div>
+                    </div>
+                    <p className="text-gray-600 mb-4">วัน{getDayInThai(selectedDate)} ที่ {selectedDate.getDate()} {getMonthInThai(selectedDate.getMonth())} {selectedDate.getFullYear() + 543}</p>
+                    {!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5) && <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6 rounded"><p className="text-yellow-700 font-medium">⚠️ วันที่เลือกเป็นวันหยุด</p></div>}
+                    {studentsInClass.length === 0 ? (<div className="text-center py-10 text-gray-500"><p>ไม่พบนักเรียนในชั้นเรียนนี้</p></div>) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{studentsInClass.map(student => {
+                            const currentStatus = attendance[selectedDate.toDateString()]?.[student.studentId] || 'none';
+                            return (<div key={student.studentId} className="bg-gray-50 rounded-lg p-4 border transition-shadow hover:shadow-md">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div><h3 className="font-semibold text-gray-800">{student.fullName}</h3><p className="text-sm text-gray-600">เลขที่ {student.no}</p></div>
+                                    <span className="text-2xl font-bold text-gray-400">#{student.no}</span>
+                                </div>
+                                <div className="flex space-x-2">{attendanceStatuses.map(s => {
+                                    const { icon: Icon, color, label } = statusConfig[s];
+                                    const isSelected = currentStatus === s;
+                                    return (<button key={s} onClick={() => handleAttendanceChange(student.studentId, selectedDate, s)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${isSelected ? `bg-${color}-500 text-white` : `bg-gray-200 text-gray-700 hover:bg-${color}-100`}`} disabled={!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}><Icon size={16} className="inline mr-1" />{label}</button>);
+                                })}</div>
+                            </div>);
+                        })}</div>
+                    )}
+                </div>
+            )};
+            
+        const SummaryReportView = ({ filteredStudents, attendance, uniqueClasses, selectedClass, setSelectedClass, students, setCurrentView }) => {
+            const [reportType, setReportType] = useState('monthly');
+            const [reportDate, setReportDate] = useState(new Date());
+            const [reportMonth, setReportMonth] = useState(new Date().getMonth());
+            const [reportYear, setReportYear] = useState(new Date().getFullYear());
+
+            const stats = useMemo(() => {
+                const studentStats = {};
+                if (filteredStudents.length === 0) return studentStats;
+                
+                filteredStudents.forEach(s => { studentStats[s.studentId] = { present: 0, late: 0, leave: 0, absent: 0, total: 0 }; });
+                
+                const daysInFilter = new Set();
+
+                Object.keys(attendance).forEach(dateStr => {
+                    const date = new Date(dateStr);
+                    let isInRange = false;
+                    if (reportType === 'daily' && date.toDateString() === reportDate.toDateString()) {
+                       isInRange = true;
+                    } else if (reportType === 'monthly' && date.getMonth() === reportMonth && date.getFullYear() === reportYear) {
+                       isInRange = true;
+                    } else if (reportType === 'yearly' && date.getFullYear() === reportYear) {
+                       isInRange = true;
+                    }
+
+                    if (isInRange && date.getDay() >= 1 && date.getDay() <= 5) {
+                        daysInFilter.add(date.toDateString());
+                        const dayAttendance = attendance[dateStr];
+                        filteredStudents.forEach(student => {
+                             if(studentStats[student.studentId]) {
+                                const status = dayAttendance[student.studentId];
+                                if (status === 'present') studentStats[student.studentId].present++;
+                                else if (status === 'late') studentStats[student.studentId].late++;
+                                else if (status === 'leave') studentStats[student.studentId].leave++;
+                                else if (status === 'absent') studentStats[student.studentId].absent++;
+                             }
+                        });
+                    }
+                });
+
+                const totalDays = daysInFilter.size;
+                filteredStudents.forEach(s => { if(studentStats[s.studentId]) studentStats[s.studentId].total = totalDays; });
+                return studentStats;
+            }, [filteredStudents, attendance, reportType, reportDate, reportMonth, reportYear]);
+            
+            const exportSummaryToExcel = () => {
+                const headers = ["ชั้น", "เลขที่", "ชื่อ-นามสกุล", "มา", "สาย", "ลา", "ขาด", "วันเรียนทั้งหมด", "เปอร์เซ็นต์เข้าเรียน"];
+                const data = filteredStudents.map(student => {
+                    const studentStat = stats[student.studentId] || { present: 0, late: 0, leave: 0, absent: 0, total: 0 };
+                    const percentage = studentStat.total > 0 ? Math.round(((studentStat.present + studentStat.late) / studentStat.total) * 100) : 0;
+                    return [student.class, student.no, student.fullName, studentStat.present, studentStat.late, studentStat.leave, studentStat.absent, studentStat.total, `${percentage}%`];
+                });
+                const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, "รายงานสรุป");
+                XLSX.writeFile(workbook, `รายงานสรุป.xlsx`);
+            };
+
+            const exportDetailedMonthlyToExcel = () => {
+                const daysInMonth = new Date(reportYear, reportMonth + 1, 0).getDate();
+                const statusMap = { present: '/', late: 'ส', leave: 'ล', absent: 'ข' };
+                
+                const headers = ["ชั้น", "เลขที่", "ชื่อ-นามสกุล"];
+                for (let i = 1; i <= daysInMonth; i++) {
+                    headers.push(String(i));
+                }
+                headers.push("รวมมา", "รวมสาย", "รวมลา", "รวมขาด");
+
+                const data = filteredStudents.map(student => {
+                    const row = [student.class, student.no, student.fullName];
+                    const summary = { present: 0, late: 0, leave: 0, absent: 0 };
+                    for (let day = 1; day <= daysInMonth; day++) {
+                        const date = new Date(reportYear, reportMonth, day);
+                        let dayStatus = '';
+                        if (date.getDay() >= 1 && date.getDay() <= 5) { // Weekday
+                            const status = attendance[date.toDateString()]?.[student.studentId];
+                            dayStatus = statusMap[status] || '';
+                            if(status) summary[status]++;
+                        }
+                        row.push(dayStatus);
+                    }
+                    row.push(summary.present, summary.late, summary.leave, summary.absent);
+                    return row;
+                });
+
+                const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, `รายวัน เดือน${getMonthInThai(reportMonth)}`);
+                XLSX.writeFile(workbook, `รายงานรายวัน-${getMonthInThai(reportMonth)}-${reportYear + 543}.xlsx`);
+            };
+
+            return (
+                <div id="print-section">
+                    <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+                        <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4 no-print">
+                            <div className="flex items-center space-x-3"><BarChart3 className="text-green-600" size={24} />
+                                <div><h2 className="text-xl font-bold text-gray-800">รายงานสรุป</h2></div>
+                            </div>
+                            <div className="flex items-center gap-4 flex-wrap justify-center">
+                                <select value={reportType} onChange={(e) => setReportType(e.target.value)} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">
+                                    <option value="daily">รายวัน</option>
+                                    <option value="monthly">รายเดือน</option>
+                                    <option value="yearly">รายปี</option>
+                                </select>
+                                {reportType === 'daily' && <input type="date" value={formatDateToYYYYMMDD(reportDate)} onChange={(e) => setReportDate(new Date(e.target.value))} className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"/>}
+                                {reportType === 'monthly' && <select value={reportMonth} onChange={(e) => setReportMonth(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">{Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{getMonthInThai(i)}</option>))}</select>}
+                                <select value={reportYear} onChange={(e) => setReportYear(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">{[2024, 2025, 2026].map(y => (<option key={y} value={y}>{y + 543}</option>))}</select>
+                                <div className="flex items-center space-x-2">
+                                    <label htmlFor="classFilterReport" className="text-sm font-medium text-gray-700">ชั้น:</label>
+                                    <select id="classFilterReport" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="all">ทั้งหมด</option>
+                                        {uniqueClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        {filteredStudents.length === 0 ? (<div className="text-center py-10 text-gray-500"><p>ไม่พบนักเรียนในชั้นที่เลือก หรือยังไม่มีข้อมูลนักเรียน</p><button onClick={() => setCurrentView('manage')} className="mt-2 text-blue-600 hover:underline no-print">ไปที่หน้าจัดการนักเรียน</button></div>) : (
+                            <>
+                            <div className="overflow-x-auto"><table className="w-full border-collapse bg-white">
+                                <thead className="bg-gradient-to-r from-blue-500 to-purple-600 text-white"><tr>{["ชั้น", "เลขที่", "ชื่อ-นามสกุล", "มา", "สาย", "ลา", "ขาด", "วันเรียนทั้งหมด", "เปอร์เซ็นต์"].map(h => <th key={h} className="p-3 text-left">{h}</th>)}</tr></thead>
+                                <tbody>{filteredStudents.map((student, index) => {
+                                    const studentStat = stats[student.studentId] || { present: 0, late: 0, leave: 0, absent: 0, total: 0 };
+                                    const percentage = studentStat.total > 0 ? Math.round(((studentStat.present + studentStat.late) / studentStat.total) * 100) : 0;
+                                    return (<tr key={student.studentId} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}><td className="p-3 text-sm text-gray-500">{student.class}</td><td className="p-3 font-medium text-center">{student.no}</td><td className="p-3">{student.fullName}</td><td className="p-3 text-center"><span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.present}</span></td><td className="p-3 text-center"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.late}</span></td><td className="p-3 text-center"><span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.leave}</span></td><td className="p-3 text-center"><span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.absent}</span></td><td className="p-3 text-center font-medium">{studentStat.total}</td><td className="p-3 text-center"><span className={`px-2 py-1 rounded-full text-sm font-medium ${percentage >= 80 ? 'bg-green-100 text-green-800' : percentage >= 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{percentage}%</span></td></tr>);
+                                })}</tbody>
+                            </table></div>
+                            <div className="flex justify-center flex-wrap gap-4 mt-6 no-print">
+                                <button onClick={exportSummaryToExcel} className="flex items-center space-x-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors shadow-md hover:shadow-lg"><Download size={20} /><span>ส่งออกสรุป (Excel)</span></button>
+                                {reportType === 'monthly' && <button onClick={exportDetailedMonthlyToExcel} className="flex items-center space-x-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 transition-colors shadow-md hover:shadow-lg"><Download size={20} /><span>ส่งออกรายวัน (Excel)</span></button>}
+                                <button onClick={() => window.print()} className="flex items-center space-x-2 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors shadow-md hover:shadow-lg"><Printer size={20} /><span>พิมพ์ / PDF</span></button>
+                            </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const HistoryView = ({ students, uniqueClasses, attendance, handleAttendanceChange, selectedClass, setSelectedClass }) => {
+            const [historyMonth, setHistoryMonth] = useState(new Date().getMonth());
+            const [historyYear, setHistoryYear] = useState(new Date().getFullYear());
+            
+            const historyFilteredStudents = useMemo(() => {
+                if (selectedClass === 'all') return students.sort((a,b) => a.no - b.no);
+                return students.filter(s => s.class === selectedClass).sort((a,b) => a.no - b.no);
+            }, [students, selectedClass]);
+
+            const [selectedStudentId, setSelectedStudentId] = useState('');
+
+            useEffect(() => {
+                if (historyFilteredStudents.length > 0 && !historyFilteredStudents.some(s => s.studentId === selectedStudentId)) {
+                    setSelectedStudentId(historyFilteredStudents[0].studentId);
+                } else if (historyFilteredStudents.length === 0) {
+                    setSelectedStudentId('');
+                }
+            }, [historyFilteredStudents, selectedStudentId]);
+
+
+            const calendarDays = useMemo(() => {
+                const date = new Date(historyYear, historyMonth, 1);
+                const firstDay = date.getDay();
+                const daysInMonth = new Date(historyYear, historyMonth + 1, 0).getDate();
+                
+                const days = [];
+                for (let i = 0; i < firstDay; i++) {
+                    days.push({ type: 'blank', id: `blank-${i}` });
+                }
+                for (let i = 1; i <= daysInMonth; i++) {
+                    days.push({ type: 'day', day: i, id: `day-${i}` });
+                }
+                return days;
+            }, [historyMonth, historyYear]);
+            
+            return (
+                <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+                    <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
+                        <div className="flex items-center space-x-3"><History className="text-purple-600" size={24} /><h2 className="text-xl font-bold text-gray-800">แก้ไข/ประวัติการเข้าเรียน</h2></div>
+                        <div className="flex items-center gap-4 flex-wrap justify-center">
+                            <div className="flex items-center space-x-2">
+                                <label htmlFor="classFilterHistory" className="text-sm font-medium text-gray-700">ชั้น:</label>
+                                <select id="classFilterHistory" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
+                                    <option value="all">ทั้งหมด</option>
+                                    {uniqueClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                                </select>
+                            </div>
+                            <select value={selectedStudentId} onChange={e => setSelectedStudentId(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 min-w-[150px]">
+                                {historyFilteredStudents.length > 0 ? historyFilteredStudents.map(s => <option key={s.studentId} value={s.studentId}>{s.fullName}</option>) : <option>ไม่มีนักเรียน</option>}
+                            </select>
+                            <select value={historyMonth} onChange={e => setHistoryMonth(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500">{Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{getMonthInThai(i)}</option>))}</select>
+                            <select value={historyYear} onChange={e => setHistoryYear(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500">{[2024, 2025, 2026].map(y => (<option key={y} value={y}>{y + 543}</option>))}</select>
+                        </div>
+                    </div>
+                    {selectedStudentId ? (
+                        <div className="grid grid-cols-7 gap-1 text-center">
+                            {['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map(day => <div key={day} className="font-bold text-gray-600 p-2">{day}</div>)}
+                            {calendarDays.map((dayInfo) => {
+                                if (dayInfo.type === 'blank') return <div key={dayInfo.id} className="border rounded-md"></div>;
+                                
+                                const date = new Date(historyYear, historyMonth, dayInfo.day);
+                                const status = attendance[date.toDateString()]?.[selectedStudentId] || 'none';
+                                const isWeekday = date.getDay() >= 1 && date.getDay() <= 5;
+
+                                const statusConfig = {
+                                    present: { class: 'bg-green-500 text-white', label: 'มา' },
+                                    late: { class: 'bg-yellow-500 text-white', label: 'สาย' },
+                                    leave: { class: 'bg-blue-500 text-white', label: 'ลา' },
+                                    absent: { class: 'bg-red-500 text-white', label: 'ขาด' },
+                                    none: { class: 'bg-gray-100', label: '' }
+                                };
+
+                                return (
+                                    <div key={dayInfo.id} className={`border rounded-md p-2 flex flex-col items-center justify-center min-h-[96px] group relative ${isWeekday ? 'cursor-pointer' : 'bg-gray-50'}`}>
+                                        <span className={`absolute top-1 right-1 text-xs font-bold ${status !== 'none' ? 'text-white' : 'text-gray-500'}`}>{dayInfo.day}</span>
+                                        <div className={`w-full h-full flex items-center justify-center rounded-md ${statusConfig[status].class}`}>
+                                            {status !== 'none' && <span className="font-bold text-sm">{statusConfig[status].label}</span>}
+                                        </div>
+                                        {isWeekday && (
+                                            <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-md p-1">
+                                                <button 
+                                                    onClick={() => handleAttendanceChange(selectedStudentId, date, 'none')} 
+                                                    className="p-2 bg-red-600 rounded-full text-white hover:bg-red-700 flex items-center justify-center"
+                                                    title="ลบข้อมูลการเช็คชื่อ"
+                                                >
+                                                    <Trash2 size={20}/>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : <div className="text-center py-10 text-gray-500">กรุณาเลือกนักเรียน หรือ เพิ่มนักเรียนในหน้าจัดการ</div>}
+                </div>
+            );
+        };
+
+        const ExecutiveSummaryView = ({ students, attendance }) => {
+            const [summaryMonth, setSummaryMonth] = useState(new Date().getMonth());
+            const [summaryYear, setSummaryYear] = useState(new Date().getFullYear());
+
+            const summaryData = useMemo(() => {
+                const daysInMonth = new Date(summaryYear, summaryMonth + 1, 0).getDate();
+                const dailySummaries = [];
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const date = new Date(summaryYear, summaryMonth, day);
+                    if (date.getDay() >= 1 && date.getDay() <= 5) { // Weekdays only
+                        const dateKey = date.toDateString();
+                        const dayAttendance = attendance[dateKey] || {};
+                        
+                        let summary = { present: 0, late: 0, leave: 0, absent: 0, total: 0 };
+                        
+                        students.forEach(student => {
+                            const status = dayAttendance[student.studentId];
+                            if (status && summary.hasOwnProperty(status)) {
+                                summary[status]++;
+                            }
+                        });
+                        
+                        summary.total = summary.present + summary.late + summary.leave + summary.absent;
+                        
+                        if (summary.total > 0) {
+                            dailySummaries.push({ date, ...summary });
+                        }
+                    }
+                }
+                return dailySummaries;
+            }, [attendance, students, summaryMonth, summaryYear]);
+
+            return (
+                   <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
+                        <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
+                            <div className="flex items-center space-x-3"><PieChart className="text-indigo-600" size={24} /><h2 className="text-xl font-bold text-gray-800">สรุปสำหรับผู้บริหาร</h2></div>
+                            <div className="flex items-center gap-4 flex-wrap justify-center">
+                                <select value={summaryMonth} onChange={e => setSummaryMonth(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">{Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{getMonthInThai(i)}</option>))}</select>
+                                <select value={summaryYear} onChange={e => setSummaryYear(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">{[2024, 2025, 2026].map(y => (<option key={y} value={y}>{y + 543}</option>))}</select>
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto"><table className="w-full border-collapse bg-white">
+                            <thead className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"><tr>
+                                <th className="p-3 text-left">วันที่</th>
+                                <th className="p-3 text-center">มา (คน)</th>
+                                <th className="p-3 text-center">สาย (คน)</th>
+                                <th className="p-3 text-center">ลา (คน)</th>
+                                <th className="p-3 text-center">ขาด (คน)</th>
+                                <th className="p-3 text-center">รวม (คน)</th>
+                                <th className="p-3 text-center">% มา</th>
+                                <th className="p-3 text-center">% ลา</th>
+                                <th className="p-3 text-center">% ขาด</th>
+                            </tr></thead>
+                            <tbody>{summaryData.map(({ date, ...summary }, index) => {
+                                const totalPresentAndLate = summary.present + summary.late;
+                                const presentPercent = students.length > 0 ? ((totalPresentAndLate / students.length) * 100).toFixed(1) : 0;
+                                const leavePercent = students.length > 0 ? ((summary.leave / students.length) * 100).toFixed(1) : 0;
+                                const absentPercent = students.length > 0 ? ((summary.absent / students.length) * 100).toFixed(1) : 0;
+                                return (
+                                <tr key={date.toString()} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                                    <td className="p-3 text-sm text-gray-700">{`${date.getDate()} ${getMonthInThai(date.getMonth())} ${date.getFullYear() + 543}`}</td>
+                                    <td className="p-3 text-center font-medium text-green-600">{summary.present}</td>
+                                    <td className="p-3 text-center font-medium text-yellow-600">{summary.late}</td>
+                                    <td className="p-3 text-center font-medium text-blue-600">{summary.leave}</td>
+                                    <td className="p-3 text-center font-medium text-red-600">{summary.absent}</td>
+                                    <td className="p-3 text-center font-bold">{students.length}</td>
+                                    <td className="p-3 text-center">{presentPercent}%</td>
+                                    <td className="p-3 text-center">{leavePercent}%</td>
+                                    <td className="p-3 text-center">{absentPercent}%</td>
+                                </tr>
+                            )})}{summaryData.length === 0 && (<tr><td colSpan="9" className="text-center py-10 text-gray-500">ไม่มีข้อมูลการเช็คชื่อในเดือนที่เลือก</td></tr>)}
+                            </tbody>
+                        </table></div>
+                    </div>
+            );
+        };
+
         // --- Main Application Component ---
         const StudentAttendanceSystem = () => {
             const [isLoading, setIsLoading] = useState(true);
@@ -234,15 +761,22 @@
                 }
             };
 
-            const handleAttendanceChange = async (studentId, date, status) => {
+            const handleAttendanceChange = async (studentId, date, statusOrStatuses) => {
                 const dateKey = date.toDateString();
                 const currentStatuses = attendance[dateKey] || {};
-                const newStatuses = { ...currentStatuses };
+                let newStatuses;
 
-                if (status === 'none') {
-                    delete newStatuses[studentId];
+                // Handle both single student update and whole class update
+                if (typeof statusOrStatuses === 'object' && statusOrStatuses !== null) {
+                    newStatuses = statusOrStatuses;
                 } else {
-                    newStatuses[studentId] = status;
+                    newStatuses = { ...currentStatuses };
+                    const status = statusOrStatuses;
+                    if (status === 'none') {
+                        delete newStatuses[studentId];
+                    } else {
+                        newStatuses[studentId] = status;
+                    }
                 }
                 
                 setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
@@ -251,534 +785,6 @@
                     date: formatDateToYYYYMMDD(date),
                     statuses: newStatuses
                 });
-            };
-
-            const ModalComponent = () => {
-                if (!modal.isOpen) return null;
-                const handleConfirm = () => {
-                    if (modal.type === 'delete_student') deleteStudent(modal.data);
-                    else if (modal.type === 'import_students') importStudents(modal.data);
-                };
-                return (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"><div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-auto">
-                        <div className="flex items-start mb-4">
-                            {modal.type === 'error' && <AlertTriangle className="text-red-500 mr-3 flex-shrink-0" size={24}/>}
-                            {modal.type.startsWith('delete') && <AlertTriangle className="text-yellow-500 mr-3 flex-shrink-0" size={24}/>}
-                            <h3 className="text-lg font-bold">{modal.type === 'error' ? 'ข้อผิดพลาด' : 'ยืนยันการกระทำ'}</h3>
-                        </div>
-                        <p className="text-gray-600 mb-6 break-words">{modal.message}</p>
-                        <div className="flex justify-end space-x-3">
-                            {['delete_student', 'import_students'].includes(modal.type) ? (<>
-                                <button onClick={closeModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">ยกเลิก</button>
-                                <button onClick={handleConfirm} className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">ยืนยัน</button>
-                            </>) : (<button onClick={closeModal} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">ตกลง</button>)}
-                        </div>
-                    </div></div>
-                );
-            };
-
-            const EditStudentModal = () => {
-                const [formData, setFormData] = useState(null);
-                useEffect(() => { setFormData(modal.data); }, [modal.data]);
-                if (!modal.isOpen || modal.type !== 'edit_student') return null;
-                const handleChange = (e) => {
-                    const { name, value } = e.target;
-                    const val = name === 'no' ? parseInt(value) || '' : value;
-                    setFormData(prev => ({ ...prev, [name]: val }));
-                };
-                const handleSubmit = (e) => { e.preventDefault(); updateStudent(modal.data, formData); };
-                return (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"><form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-auto space-y-4">
-                        <h3 className="text-lg font-bold">แก้ไขข้อมูลนักเรียน</h3>
-                        <div><label htmlFor="edit-class" className="block text-sm font-medium text-gray-700">ชั้น</label><input type="text" name="class" id="edit-class" value={formData?.class || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                        <div><label htmlFor="edit-no" className="block text-sm font-medium text-gray-700">เลขที่</label><input type="number" name="no" id="edit-no" value={formData?.no || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                        <div><label htmlFor="edit-title" className="block text-sm font-medium text-gray-700">คำนำหน้า</label><input type="text" name="title" id="edit-title" value={formData?.title || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                        <div><label htmlFor="edit-firstName" className="block text-sm font-medium text-gray-700">ชื่อ</label><input type="text" name="firstName" id="edit-firstName" value={formData?.firstName || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                        <div><label htmlFor="edit-lastName" className="block text-sm font-medium text-gray-700">นามสกุล</label><input type="text" name="lastName" id="edit-lastName" value={formData?.lastName || ''} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                        <div className="flex justify-end space-x-3 pt-2">
-                            <button type="button" onClick={closeModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">ยกเลิก</button>
-                            <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400">{isSubmitting ? 'กำลังบันทึก...' : 'บันทึก'}</button>
-                        </div>
-                    </form></div>
-                );
-            };
-
-            const StudentManagementView = () => {
-                const [newStudent, setNewStudent] = useState({ class: '', no: '', title: '', firstName: '', lastName: '' });
-                const handleInputChange = (e) => { const { name, value } = e.target; const val = name === 'no' ? parseInt(value) || '' : value; setNewStudent(prev => ({ ...prev, [name]: val })); };
-                const handleAddStudent = async (e) => { e.preventDefault(); if (!newStudent.class || !newStudent.no || !newStudent.firstName || !newStudent.lastName) return openModal('error', 'กรุณากรอกข้อมูลนักเรียนให้ครบถ้วน (ชั้น, เลขที่, ชื่อ, นามสกุล)'); const success = await addStudent(newStudent); if(success) setNewStudent({ class: '', no: '', title: '', firstName: '', lastName: '' }); };
-                const handleFileImport = (e) => {
-                    const file = e.target.files[0]; if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        try {
-                            const data = new Uint8Array(event.target.result);
-                            const workbook = XLSX.read(data, { type: 'array' });
-                            const sheetName = workbook.SheetNames[0];
-                            const worksheet = workbook.Sheets[sheetName];
-                            const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                            const imported = json.slice(1).map(row => ({
-                                class: String(row[0] || ''),
-                                no: parseInt(row[1]),
-                                title: String(row[2] || ''),
-                                firstName: String(row[3] || ''),
-                                lastName: String(row[4] || ''),
-                            })).filter(s => s.class && s.no && s.firstName && s.lastName);
-                            if (imported.length > 0) openModal('import_students', `คุณกำลังจะนำเข้ารายชื่อนักเรียน ${imported.length} คน และจะลบรายชื่อเดิมทั้งหมด ยืนยันหรือไม่?`, imported);
-                            else openModal('error', 'ไม่พบข้อมูลนักเรียนที่ถูกต้องในไฟล์ หรือไฟล์อาจมีรูปแบบไม่ถูกต้อง');
-                        } catch (error) { console.error("Error reading Excel file:", error); openModal('error', 'เกิดข้อผิดพลาดในการอ่านไฟล์ Excel'); }
-                    };
-                    reader.readAsArrayBuffer(file); e.target.value = '';
-                };
-                return (
-                    <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in space-y-8">
-                        <div><h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><UserPlus className="mr-2 text-blue-600"/>เพิ่มนักเรียนใหม่</h2><form onSubmit={handleAddStudent} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
-                            <div className="lg:col-span-1"><label htmlFor="class" className="block text-sm font-medium text-gray-700">ชั้น</label><input type="text" name="class" id="class" value={newStudent.class} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                            <div className="lg:col-span-1"><label htmlFor="no" className="block text-sm font-medium text-gray-700">เลขที่</label><input type="number" name="no" id="no" value={newStudent.no} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                            <div className="lg:col-span-1"><label htmlFor="title" className="block text-sm font-medium text-gray-700">คำนำหน้า</label><input type="text" name="title" id="title" value={newStudent.title} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                            <div className="lg:col-span-1"><label htmlFor="firstName" className="block text-sm font-medium text-gray-700">ชื่อ</label><input type="text" name="firstName" id="firstName" value={newStudent.firstName} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                            <div className="lg:col-span-1"><label htmlFor="lastName" className="block text-sm font-medium text-gray-700">นามสกุล</label><input type="text" name="lastName" id="lastName" value={newStudent.lastName} onChange={handleInputChange} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md"/></div>
-                            <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 flex items-center justify-center disabled:bg-gray-400">
-                                {isSubmitting ? <Loader2 className="animate-spin" size={18}/> : <><UserPlus size={18} className="mr-2"/>เพิ่ม</>}
-                            </button>
-                        </form></div>
-                        <div><h3 className="text-lg font-semibold text-gray-700 mb-2 flex items-center"><Upload className="mr-2"/>นำเข้าจาก Excel</h3><p className="text-sm text-gray-500 mb-2">อัปโหลดไฟล์ .xlsx ที่มีคอลัมน์: A=ชั้น, B=เลขที่, C=คำนำหน้า, D=ชื่อ, E=นามสกุล (แถวแรกคือหัวข้อ)</p><input type="file" onChange={handleFileImport} accept=".xlsx, .csv" className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/></div>
-                        <div><h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><Users className="mr-2 text-green-600"/>รายชื่อนักเรียน ({students.length} คน)</h2><div className="overflow-x-auto border rounded-lg"><table className="w-full">
-                            <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชั้น</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขที่</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ-นามสกุล</th><th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ</th></tr></thead>
-                            <tbody className="bg-white divide-y divide-gray-200">{students.map(student => (
-                                <tr key={student.studentId}><td className="px-6 py-4 text-sm text-gray-500">{student.class}</td><td className="px-6 py-4 text-sm font-medium text-gray-900">{student.no}</td><td className="px-6 py-4 text-sm text-gray-500">{student.fullName}</td><td className="px-6 py-4 text-center text-sm font-medium space-x-4">
-                                    <button onClick={() => openModal('edit_student', '', student)} className="text-blue-600 hover:text-blue-900"><Pencil size={18}/></button>
-                                    <button onClick={() => openModal('delete_student', `คุณแน่ใจหรือไม่ว่าต้องการลบ "${student.fullName}"?`, student)} className="text-red-600 hover:text-red-900"><Trash2 size={18}/></button>
-                                </td></tr>
-                            ))}{students.length === 0 && (<tr><td colSpan="4" className="text-center py-10 text-gray-500">ยังไม่มีข้อมูลนักเรียน</td></tr>)}
-                        </tbody></table></div></div>
-                    </div>
-                );
-            };
-
-            const DailyAttendanceView = () => {
-                const [selectedDate, setSelectedDate] = useState(new Date());
-                const [activeClass, setActiveClass] = useState(null);
-
-                const attendanceStatuses = ['present', 'late', 'leave', 'absent'];
-                const statusConfig = {
-                    present: { icon: CheckCircle, color: 'green', label: 'มา' },
-                    late: { icon: Clock, color: 'yellow', label: 'สาย' },
-                    leave: { icon: Briefcase, color: 'blue', label: 'ลา' },
-                    absent: { icon: XCircle, color: 'red', label: 'ขาด' }
-                };
-                
-                const studentsInClass = useMemo(() => {
-                    if (!activeClass) return [];
-                    return students.filter(s => s.class === activeClass).sort((a, b) => a.no - b.no);
-                }, [students, activeClass]);
-
-                const handleMarkAllPresent = async () => {
-                    if (studentsInClass.length === 0) return;
-                    if (!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)) {
-                        openModal('error', 'ไม่สามารถเช็คชื่อในวันหยุดได้');
-                        return;
-                    }
-
-                    const dateKey = selectedDate.toDateString();
-                    const currentStatuses = attendance[dateKey] || {};
-                    const newStatuses = { ...currentStatuses };
-
-                    studentsInClass.forEach(student => {
-                        newStatuses[student.studentId] = 'present';
-                    });
-
-                    setAttendance(prev => ({ ...prev, [dateKey]: newStatuses }));
-
-                    await apiRequest('SAVE_ATTENDANCE', {
-                        date: formatDateToYYYYMMDD(selectedDate),
-                        statuses: newStatuses
-                    });
-                };
-
-                if (!activeClass) {
-                    return (
-                        <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
-                            <div className="flex items-center space-x-3 mb-6">
-                                <Calendar className="text-blue-600" size={24} />
-                                <h2 className="text-xl font-bold text-gray-800">เลือกชั้นเรียนเพื่อเช็คชื่อ</h2>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                {uniqueClasses.map(cls => (
-                                    <button 
-                                        key={cls} 
-                                        onClick={() => setActiveClass(cls)}
-                                        className="p-6 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:scale-105 flex flex-col items-center justify-center"
-                                    >
-                                        <Users size={32} className="mb-2"/>
-                                        <span className="text-xl font-bold">ห้อง {cls}</span>
-                                    </button>
-                                ))}
-                                {uniqueClasses.length === 0 && 
-                                    <div className="col-span-full text-center py-10 text-gray-500">
-                                        <p>ไม่พบข้อมูลชั้นเรียน</p>
-                                        <button onClick={() => setCurrentView('manage')} className="mt-2 text-blue-600 hover:underline">ไปที่หน้าจัดการนักเรียนเพื่อเพิ่มข้อมูล</button>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    );
-                }
-                
-                return (
-                   <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
-                        <div className="flex flex-col sm:flex-row items-center justify-between mb-6 gap-4">
-                            <div className="flex items-center space-x-3">
-                                <button onClick={() => setActiveClass(null)} className="p-2 rounded-full hover:bg-gray-200 transition-colors" title="กลับไปเลือกห้อง">
-                                    <ArrowLeft size={20} />
-                                </button>
-                                <h2 className="text-xl font-bold text-gray-800">เช็คชื่อห้อง {activeClass}</h2>
-                            </div>
-                            <div className="flex items-center gap-4 flex-wrap justify-center">
-                                <input type="date" value={formatDateToYYYYMMDD(selectedDate)} onChange={(e) => setSelectedDate(new Date(e.target.value))} className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"/>
-                                <button 
-                                    onClick={handleMarkAllPresent}
-                                    className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 flex items-center gap-2 transition-colors disabled:bg-gray-400"
-                                    disabled={studentsInClass.length === 0 || !(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}
-                                >
-                                    <CheckCircle size={18} />
-                                    <span>เช็คมาทั้งห้อง</span>
-                                </button>
-                            </div>
-                        </div>
-                        <p className="text-gray-600 mb-4">วัน{getDayInThai(selectedDate)} ที่ {selectedDate.getDate()} {getMonthInThai(selectedDate.getMonth())} {selectedDate.getFullYear() + 543}</p>
-                        {!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5) && <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6 rounded"><p className="text-yellow-700 font-medium">⚠️ วันที่เลือกเป็นวันหยุด</p></div>}
-                        {studentsInClass.length === 0 ? (<div className="text-center py-10 text-gray-500"><p>ไม่พบนักเรียนในชั้นเรียนนี้</p></div>) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{studentsInClass.map(student => {
-                                const currentStatus = attendance[selectedDate.toDateString()]?.[student.studentId] || 'none';
-                                return (<div key={student.studentId} className="bg-gray-50 rounded-lg p-4 border transition-shadow hover:shadow-md">
-                                    <div className="flex items-center justify-between mb-3">
-                                        <div><h3 className="font-semibold text-gray-800">{student.fullName}</h3><p className="text-sm text-gray-600">เลขที่ {student.no}</p></div>
-                                        <span className="text-2xl font-bold text-gray-400">#{student.no}</span>
-                                    </div>
-                                    <div className="flex space-x-2">{attendanceStatuses.map(s => {
-                                        const { icon: Icon, color, label } = statusConfig[s];
-                                        const isSelected = currentStatus === s;
-                                        return (<button key={s} onClick={() => handleAttendanceChange(student.studentId, selectedDate, s)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${isSelected ? `bg-${color}-500 text-white` : `bg-gray-200 text-gray-700 hover:bg-${color}-100`}`} disabled={!(selectedDate.getDay() >= 1 && selectedDate.getDay() <= 5)}><Icon size={16} className="inline mr-1" />{label}</button>);
-                                    })}</div>
-                                </div>);
-                            })}</div>
-                        )}
-                    </div>
-                )};
-                
-            const SummaryReportView = () => {
-                const [reportType, setReportType] = useState('monthly');
-                const [reportDate, setReportDate] = useState(new Date());
-                const [reportMonth, setReportMonth] = useState(new Date().getMonth());
-                const [reportYear, setReportYear] = useState(new Date().getFullYear());
-
-                const stats = useMemo(() => {
-                    const studentStats = {};
-                    if (filteredStudents.length === 0) return studentStats;
-                    
-                    filteredStudents.forEach(s => { studentStats[s.studentId] = { present: 0, late: 0, leave: 0, absent: 0, total: 0 }; });
-                    
-                    const daysInFilter = new Set();
-
-                    Object.keys(attendance).forEach(dateStr => {
-                        const date = new Date(dateStr);
-                        let isInRange = false;
-                        if (reportType === 'daily' && date.toDateString() === reportDate.toDateString()) {
-                           isInRange = true;
-                        } else if (reportType === 'monthly' && date.getMonth() === reportMonth && date.getFullYear() === reportYear) {
-                           isInRange = true;
-                        } else if (reportType === 'yearly' && date.getFullYear() === reportYear) {
-                           isInRange = true;
-                        }
-
-                        if (isInRange && date.getDay() >= 1 && date.getDay() <= 5) {
-                            daysInFilter.add(date.toDateString());
-                            const dayAttendance = attendance[dateStr];
-                            filteredStudents.forEach(student => {
-                                 if(studentStats[student.studentId]) {
-                                    const status = dayAttendance[student.studentId];
-                                    if (status === 'present') studentStats[student.studentId].present++;
-                                    else if (status === 'late') studentStats[student.studentId].late++;
-                                    else if (status === 'leave') studentStats[student.studentId].leave++;
-                                    else if (status === 'absent') studentStats[student.studentId].absent++;
-                                 }
-                            });
-                        }
-                    });
-
-                    const totalDays = daysInFilter.size;
-                    filteredStudents.forEach(s => { if(studentStats[s.studentId]) studentStats[s.studentId].total = totalDays; });
-                    return studentStats;
-                }, [filteredStudents, attendance, reportType, reportDate, reportMonth, reportYear]);
-                
-                const exportSummaryToExcel = () => {
-                    const headers = ["ชั้น", "เลขที่", "ชื่อ-นามสกุล", "มา", "สาย", "ลา", "ขาด", "วันเรียนทั้งหมด", "เปอร์เซ็นต์เข้าเรียน"];
-                    const data = filteredStudents.map(student => {
-                        const studentStat = stats[student.studentId] || { present: 0, late: 0, leave: 0, absent: 0, total: 0 };
-                        const percentage = studentStat.total > 0 ? Math.round(((studentStat.present + studentStat.late) / studentStat.total) * 100) : 0;
-                        return [student.class, student.no, student.fullName, studentStat.present, studentStat.late, studentStat.leave, studentStat.absent, studentStat.total, `${percentage}%`];
-                    });
-                    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
-                    const workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, "รายงานสรุป");
-                    XLSX.writeFile(workbook, `รายงานสรุป.xlsx`);
-                };
-
-                const exportDetailedMonthlyToExcel = () => {
-                    const daysInMonth = new Date(reportYear, reportMonth + 1, 0).getDate();
-                    const statusMap = { present: '/', late: 'ส', leave: 'ล', absent: 'ข' };
-                    
-                    const headers = ["ชั้น", "เลขที่", "ชื่อ-นามสกุล"];
-                    for (let i = 1; i <= daysInMonth; i++) {
-                        headers.push(String(i));
-                    }
-                    headers.push("รวมมา", "รวมสาย", "รวมลา", "รวมขาด");
-
-                    const data = filteredStudents.map(student => {
-                        const row = [student.class, student.no, student.fullName];
-                        const summary = { present: 0, late: 0, leave: 0, absent: 0 };
-                        for (let day = 1; day <= daysInMonth; day++) {
-                            const date = new Date(reportYear, reportMonth, day);
-                            let dayStatus = '';
-                            if (date.getDay() >= 1 && date.getDay() <= 5) { // Weekday
-                                const status = attendance[date.toDateString()]?.[student.studentId];
-                                dayStatus = statusMap[status] || '';
-                                if(status) summary[status]++;
-                            }
-                            row.push(dayStatus);
-                        }
-                        row.push(summary.present, summary.late, summary.leave, summary.absent);
-                        return row;
-                    });
-
-                    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
-                    const workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, `รายวัน เดือน${getMonthInThai(reportMonth)}`);
-                    XLSX.writeFile(workbook, `รายงานรายวัน-${getMonthInThai(reportMonth)}-${reportYear + 543}.xlsx`);
-                };
-
-                return (
-                    <div id="print-section">
-                        <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
-                            <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4 no-print">
-                                <div className="flex items-center space-x-3"><BarChart3 className="text-green-600" size={24} />
-                                    <div><h2 className="text-xl font-bold text-gray-800">รายงานสรุป</h2></div>
-                                </div>
-                                <div className="flex items-center gap-4 flex-wrap justify-center">
-                                    <select value={reportType} onChange={(e) => setReportType(e.target.value)} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">
-                                        <option value="daily">รายวัน</option>
-                                        <option value="monthly">รายเดือน</option>
-                                        <option value="yearly">รายปี</option>
-                                    </select>
-                                    {reportType === 'daily' && <input type="date" value={formatDateToYYYYMMDD(reportDate)} onChange={(e) => setReportDate(new Date(e.target.value))} className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"/>}
-                                    {reportType === 'monthly' && <select value={reportMonth} onChange={(e) => setReportMonth(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">{Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{getMonthInThai(i)}</option>))}</select>}
-                                    <select value={reportYear} onChange={(e) => setReportYear(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500">{[2024, 2025, 2026].map(y => (<option key={y} value={y}>{y + 543}</option>))}</select>
-                                    <div className="flex items-center space-x-2">
-                                        <label htmlFor="classFilterReport" className="text-sm font-medium text-gray-700">ชั้น:</label>
-                                        <select id="classFilterReport" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                                            <option value="all">ทั้งหมด</option>
-                                            {uniqueClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                            {filteredStudents.length === 0 ? (<div className="text-center py-10 text-gray-500"><p>ไม่พบนักเรียนในชั้นที่เลือก หรือยังไม่มีข้อมูลนักเรียน</p><button onClick={() => setCurrentView('manage')} className="mt-2 text-blue-600 hover:underline no-print">ไปที่หน้าจัดการนักเรียน</button></div>) : (
-                                <>
-                                <div className="overflow-x-auto"><table className="w-full border-collapse bg-white">
-                                    <thead className="bg-gradient-to-r from-blue-500 to-purple-600 text-white"><tr>{["ชั้น", "เลขที่", "ชื่อ-นามสกุล", "มา", "สาย", "ลา", "ขาด", "วันเรียนทั้งหมด", "เปอร์เซ็นต์"].map(h => <th key={h} className="p-3 text-left">{h}</th>)}</tr></thead>
-                                    <tbody>{filteredStudents.map((student, index) => {
-                                        const studentStat = stats[student.studentId] || { present: 0, late: 0, leave: 0, absent: 0, total: 0 };
-                                        const percentage = studentStat.total > 0 ? Math.round(((studentStat.present + studentStat.late) / studentStat.total) * 100) : 0;
-                                        return (<tr key={student.studentId} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}><td className="p-3 text-sm text-gray-500">{student.class}</td><td className="p-3 font-medium text-center">{student.no}</td><td className="p-3">{student.fullName}</td><td className="p-3 text-center"><span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.present}</span></td><td className="p-3 text-center"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.late}</span></td><td className="p-3 text-center"><span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.leave}</span></td><td className="p-3 text-center"><span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-sm font-medium">{studentStat.absent}</span></td><td className="p-3 text-center font-medium">{studentStat.total}</td><td className="p-3 text-center"><span className={`px-2 py-1 rounded-full text-sm font-medium ${percentage >= 80 ? 'bg-green-100 text-green-800' : percentage >= 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>{percentage}%</span></td></tr>);
-                                    })}</tbody>
-                                </table></div>
-                                <div className="flex justify-center flex-wrap gap-4 mt-6 no-print">
-                                    <button onClick={exportSummaryToExcel} className="flex items-center space-x-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors shadow-md hover:shadow-lg"><Download size={20} /><span>ส่งออกสรุป (Excel)</span></button>
-                                    {reportType === 'monthly' && <button onClick={exportDetailedMonthlyToExcel} className="flex items-center space-x-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 transition-colors shadow-md hover:shadow-lg"><Download size={20} /><span>ส่งออกรายวัน (Excel)</span></button>}
-                                    <button onClick={() => window.print()} className="flex items-center space-x-2 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors shadow-md hover:shadow-lg"><Printer size={20} /><span>พิมพ์ / PDF</span></button>
-                                </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                );
-            };
-
-            const HistoryView = () => {
-                const [historyMonth, setHistoryMonth] = useState(new Date().getMonth());
-                const [historyYear, setHistoryYear] = useState(new Date().getFullYear());
-                
-                const historyFilteredStudents = useMemo(() => {
-                    if (selectedClass === 'all') return students.sort((a,b) => a.no - b.no);
-                    return students.filter(s => s.class === selectedClass).sort((a,b) => a.no - b.no);
-                }, [students, selectedClass]);
-
-                const [selectedStudentId, setSelectedStudentId] = useState('');
-
-                useEffect(() => {
-                    if (historyFilteredStudents.length > 0 && !historyFilteredStudents.some(s => s.studentId === selectedStudentId)) {
-                        setSelectedStudentId(historyFilteredStudents[0].studentId);
-                    } else if (historyFilteredStudents.length === 0) {
-                        setSelectedStudentId('');
-                    }
-                }, [historyFilteredStudents, selectedStudentId]);
-
-
-                const calendarDays = useMemo(() => {
-                    const date = new Date(historyYear, historyMonth, 1);
-                    const firstDay = date.getDay();
-                    const daysInMonth = new Date(historyYear, historyMonth + 1, 0).getDate();
-                    
-                    const days = [];
-                    for (let i = 0; i < firstDay; i++) {
-                        days.push({ type: 'blank', id: `blank-${i}` });
-                    }
-                    for (let i = 1; i <= daysInMonth; i++) {
-                        days.push({ type: 'day', day: i, id: `day-${i}` });
-                    }
-                    return days;
-                }, [historyMonth, historyYear]);
-                
-                return (
-                    <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
-                        <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
-                            <div className="flex items-center space-x-3"><History className="text-purple-600" size={24} /><h2 className="text-xl font-bold text-gray-800">แก้ไข/ประวัติการเข้าเรียน</h2></div>
-                            <div className="flex items-center gap-4 flex-wrap justify-center">
-                                <div className="flex items-center space-x-2">
-                                    <label htmlFor="classFilterHistory" className="text-sm font-medium text-gray-700">ชั้น:</label>
-                                    <select id="classFilterHistory" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
-                                        <option value="all">ทั้งหมด</option>
-                                        {uniqueClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                                    </select>
-                                </div>
-                                <select value={selectedStudentId} onChange={e => setSelectedStudentId(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 min-w-[150px]">
-                                    {historyFilteredStudents.length > 0 ? historyFilteredStudents.map(s => <option key={s.studentId} value={s.studentId}>{s.fullName}</option>) : <option>ไม่มีนักเรียน</option>}
-                                </select>
-                                <select value={historyMonth} onChange={e => setHistoryMonth(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500">{Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{getMonthInThai(i)}</option>))}</select>
-                                <select value={historyYear} onChange={e => setHistoryYear(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500">{[2024, 2025, 2026].map(y => (<option key={y} value={y}>{y + 543}</option>))}</select>
-                            </div>
-                        </div>
-                        {selectedStudentId ? (
-                            <div className="grid grid-cols-7 gap-1 text-center">
-                                {['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map(day => <div key={day} className="font-bold text-gray-600 p-2">{day}</div>)}
-                                {calendarDays.map((dayInfo) => {
-                                    if (dayInfo.type === 'blank') return <div key={dayInfo.id} className="border rounded-md"></div>;
-                                    
-                                    const date = new Date(historyYear, historyMonth, dayInfo.day);
-                                    const status = attendance[date.toDateString()]?.[selectedStudentId] || 'none';
-                                    const isWeekday = date.getDay() >= 1 && date.getDay() <= 5;
-
-                                    const statusConfig = {
-                                        present: { class: 'bg-green-500 text-white', label: 'มา' },
-                                        late: { class: 'bg-yellow-500 text-white', label: 'สาย' },
-                                        leave: { class: 'bg-blue-500 text-white', label: 'ลา' },
-                                        absent: { class: 'bg-red-500 text-white', label: 'ขาด' },
-                                        none: { class: 'bg-gray-100', label: '' }
-                                    };
-
-                                    return (
-                                        <div key={dayInfo.id} className={`border rounded-md p-2 flex flex-col items-center justify-center min-h-[96px] group relative ${isWeekday ? 'cursor-pointer' : 'bg-gray-50'}`}>
-                                            <span className={`absolute top-1 right-1 text-xs font-bold ${status !== 'none' ? 'text-white' : 'text-gray-500'}`}>{dayInfo.day}</span>
-                                            <div className={`w-full h-full flex items-center justify-center rounded-md ${statusConfig[status].class}`}>
-                                                {status !== 'none' && <span className="font-bold text-sm">{statusConfig[status].label}</span>}
-                                            </div>
-                                            {isWeekday && (
-                                                <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-md p-1">
-                                                    <button 
-                                                        onClick={() => handleAttendanceChange(selectedStudentId, date, 'none')} 
-                                                        className="p-2 bg-red-600 rounded-full text-white hover:bg-red-700 flex items-center justify-center"
-                                                        title="ลบข้อมูลการเช็คชื่อ"
-                                                    >
-                                                        <Trash2 size={20}/>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        ) : <div className="text-center py-10 text-gray-500">กรุณาเลือกนักเรียน หรือ เพิ่มนักเรียนในหน้าจัดการ</div>}
-                    </div>
-                );
-            };
-
-            const ExecutiveSummaryView = () => {
-                const [summaryMonth, setSummaryMonth] = useState(new Date().getMonth());
-                const [summaryYear, setSummaryYear] = useState(new Date().getFullYear());
-
-                const summaryData = useMemo(() => {
-                    const daysInMonth = new Date(summaryYear, summaryMonth + 1, 0).getDate();
-                    const dailySummaries = [];
-
-                    for (let day = 1; day <= daysInMonth; day++) {
-                        const date = new Date(summaryYear, summaryMonth, day);
-                        if (date.getDay() >= 1 && date.getDay() <= 5) { // Weekdays only
-                            const dateKey = date.toDateString();
-                            const dayAttendance = attendance[dateKey] || {};
-                            
-                            let summary = { present: 0, late: 0, leave: 0, absent: 0, total: 0 };
-                            
-                            students.forEach(student => {
-                                const status = dayAttendance[student.studentId];
-                                if (status && summary.hasOwnProperty(status)) {
-                                    summary[status]++;
-                                }
-                            });
-                            
-                            summary.total = summary.present + summary.late + summary.leave + summary.absent;
-                            
-                            if (summary.total > 0) {
-                                dailySummaries.push({ date, ...summary });
-                            }
-                        }
-                    }
-                    return dailySummaries;
-                }, [attendance, students, summaryMonth, summaryYear]);
-
-                return (
-                       <div className="bg-white rounded-xl shadow-lg p-6 animate-fade-in">
-                            <div className="flex flex-col md:flex-row items-center justify-between mb-6 gap-4">
-                                <div className="flex items-center space-x-3"><PieChart className="text-indigo-600" size={24} /><h2 className="text-xl font-bold text-gray-800">สรุปสำหรับผู้บริหาร</h2></div>
-                                <div className="flex items-center gap-4 flex-wrap justify-center">
-                                    <select value={summaryMonth} onChange={e => setSummaryMonth(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">{Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{getMonthInThai(i)}</option>))}</select>
-                                    <select value={summaryYear} onChange={e => setSummaryYear(parseInt(e.target.value))} className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">{[2024, 2025, 2026].map(y => (<option key={y} value={y}>{y + 543}</option>))}</select>
-                                </div>
-                            </div>
-                            <div className="overflow-x-auto"><table className="w-full border-collapse bg-white">
-                                <thead className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"><tr>
-                                    <th className="p-3 text-left">วันที่</th>
-                                    <th className="p-3 text-center">มา (คน)</th>
-                                    <th className="p-3 text-center">สาย (คน)</th>
-                                    <th className="p-3 text-center">ลา (คน)</th>
-                                    <th className="p-3 text-center">ขาด (คน)</th>
-                                    <th className="p-3 text-center">รวม (คน)</th>
-                                    <th className="p-3 text-center">% มา</th>
-                                    <th className="p-3 text-center">% ลา</th>
-                                    <th className="p-3 text-center">% ขาด</th>
-                                </tr></thead>
-                                <tbody>{summaryData.map(({ date, ...summary }, index) => {
-                                    const totalPresentAndLate = summary.present + summary.late;
-                                    const presentPercent = students.length > 0 ? ((totalPresentAndLate / students.length) * 100).toFixed(1) : 0;
-                                    const leavePercent = students.length > 0 ? ((summary.leave / students.length) * 100).toFixed(1) : 0;
-                                    const absentPercent = students.length > 0 ? ((summary.absent / students.length) * 100).toFixed(1) : 0;
-                                    return (
-                                    <tr key={date.toString()} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                                        <td className="p-3 text-sm text-gray-700">{`${date.getDate()} ${getMonthInThai(date.getMonth())} ${date.getFullYear() + 543}`}</td>
-                                        <td className="p-3 text-center font-medium text-green-600">{summary.present}</td>
-                                        <td className="p-3 text-center font-medium text-yellow-600">{summary.late}</td>
-                                        <td className="p-3 text-center font-medium text-blue-600">{summary.leave}</td>
-                                        <td className="p-3 text-center font-medium text-red-600">{summary.absent}</td>
-                                        <td className="p-3 text-center font-bold">{students.length}</td>
-                                        <td className="p-3 text-center">{presentPercent}%</td>
-                                        <td className="p-3 text-center">{leavePercent}%</td>
-                                        <td className="p-3 text-center">{absentPercent}%</td>
-                                    </tr>
-                                )})}{summaryData.length === 0 && (<tr><td colSpan="9" className="text-center py-10 text-gray-500">ไม่มีข้อมูลการเช็คชื่อในเดือนที่เลือก</td></tr>)}
-                                </tbody>
-                            </table></div>
-                        </div>
-                );
             };
 
             if (isLoading) {
@@ -798,8 +804,8 @@
                             </div>
                         </div>
                     )}
-                    <ModalComponent />
-                    <EditStudentModal />
+                    <ModalComponent modal={modal} closeModal={closeModal} deleteStudent={deleteStudent} importStudents={importStudents} />
+                    <EditStudentModal modal={modal} closeModal={closeModal} updateStudent={updateStudent} isSubmitting={isSubmitting} />
                     <header className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-500 text-white shadow-lg"><div className="container mx-auto px-4 py-6 text-center">
                         <h1 className="text-3xl font-bold mb-2">ระบบเช็คชื่อนักเรียน</h1>
                         <div className="space-y-1">
@@ -817,15 +823,14 @@
                         ].map(({ key, label, icon: Icon }) => (<button key={key} onClick={() => setCurrentView(key)} className={`flex items-center space-x-2 px-5 py-2.5 rounded-lg font-medium transition-all duration-300 ${currentView === key ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg scale-105' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'}`}><Icon size={18} /><span>{label}</span></button>))}
                     </div></div></nav>
                     <main className="container mx-auto px-4 py-8">
-                        {currentView === 'daily' && <DailyAttendanceView />}
-                        {currentView === 'history' && <HistoryView />}
-                        {currentView === 'summary' && <SummaryReportView />}
-                        {currentView === 'executive' && <ExecutiveSummaryView />}
-                        {currentView === 'manage' && <StudentManagementView />}
+                        {currentView === 'daily' && <DailyAttendanceView uniqueClasses={uniqueClasses} students={students} attendance={attendance} handleAttendanceChange={handleAttendanceChange} setCurrentView={setCurrentView} openModal={openModal} apiRequest={apiRequest} />}
+                        {currentView === 'history' && <HistoryView students={students} uniqueClasses={uniqueClasses} attendance={attendance} handleAttendanceChange={handleAttendanceChange} selectedClass={selectedClass} setSelectedClass={setSelectedClass} />}
+                        {currentView === 'summary' && <SummaryReportView filteredStudents={filteredStudents} attendance={attendance} uniqueClasses={uniqueClasses} selectedClass={selectedClass} setSelectedClass={setSelectedClass} students={students} setCurrentView={setCurrentView} />}
+                        {currentView === 'executive' && <ExecutiveSummaryView students={students} attendance={attendance} />}
+                        {currentView === 'manage' && <StudentManagementView students={students} addStudent={addStudent} importStudents={importStudents} openModal={openModal} isSubmitting={isSubmitting} />}
                     </main>
                     <footer className="bg-gray-800 text-white py-4 mt-12"><div className="container mx-auto px-4 text-center text-sm opacity-80"><p>ระบบเช็คชื่อนักเรียน | ปีการศึกษา {schoolInfo.academicYear}</p></div></footer>
                     
-                    {/* Save Status Indicator */}
                     {saveMessage && <div className="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center transition-opacity duration-300">
                         {isSubmitting ? <Loader2 className="animate-spin mr-2" size={18} /> : <CheckCircle className="text-green-400 mr-2" size={18} />}
                         {saveMessage}
